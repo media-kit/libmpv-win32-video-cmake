@@ -1,0 +1,163 @@
+Subject: hwdec_d3d11egl: copy padded decoder surfaces before ANGLE sampling
+
+Copy the visible, even-aligned NV12/P010 region into a reusable GPU texture
+when decoder surface dimensions include padding. This keeps GL_CLAMP_TO_EDGE
+from sampling the decoder padding without introducing a CPU copy-back.
+
+Use the ANGLE device immediate context and flush acquired GL reads before
+reusing the copy texture. Track acquisition so failed mappings do not release
+an unacquired stream. Unpadded surfaces keep the existing direct path.
+
+Local patch for mpv v0.41.0; inspired by video/out/d3d11/hwdec_d3d11va.c.
+
+diff --git a/video/out/opengl/hwdec_d3d11egl.c b/video/out/opengl/hwdec_d3d11egl.c
+--- a/video/out/opengl/hwdec_d3d11egl.c
++++ b/video/out/opengl/hwdec_d3d11egl.c
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include <assert.h>
++#include <limits.h>
+ #include <windows.h>
+ #include <d3d11.h>
+ 
+@@ -69,6 +70,10 @@
+ struct priv {
+     EGLStreamKHR egl_stream;
+     GLuint gl_textures[2];
++    bool acquired;
++
++    ID3D11DeviceContext *copy_ctx;
++    ID3D11Texture2D *copy_tex;
+ };
+ 
+ static void uninit(struct ra_hwdec *hw)
+@@ -212,6 +217,8 @@
+     p->egl_stream = 0;
+ 
+     gl->DeleteTextures(2, p->gl_textures);
++    SAFE_RELEASE(p->copy_tex);
++    SAFE_RELEASE(p->copy_ctx);
+ }
+ 
+ static int mapper_init(struct ra_hwdec_mapper *mapper)
+@@ -286,14 +293,90 @@
+     return -1;
+ }
+ 
+-static int mapper_map(struct ra_hwdec_mapper *mapper)
++// Keep the decoder's alignment padding outside the texture sampled by ANGLE.
++// GL_CLAMP_TO_EDGE clamps to the resource, not to the visible image rectangle.
++static int prepare_texture(struct ra_hwdec_mapper *mapper,
++                           ID3D11Texture2D **texture, intptr_t *subresource,
++                           D3D11_TEXTURE2D_DESC *desc)
+ {
+     struct priv_owner *o = mapper->owner->priv;
+     struct priv *p = mapper->priv;
++    int w = mapper->src_params.w;
++    int h = mapper->src_params.h;
++    if (w <= 0 || h <= 0 || w > INT_MAX - 1 || h > INT_MAX - 1)
++        return -1;
++
++    // NV12 and P010 require even dimensions, as in the native D3D11 mapper.
++    UINT copy_w = MP_ALIGN_UP(w, 2);
++    UINT copy_h = MP_ALIGN_UP(h, 2);
++    if (desc->Width < copy_w || desc->Height < copy_h ||
++        desc->MipLevels != 1 || desc->SampleDesc.Count != 1 ||
++        *subresource < 0 || (uintptr_t)*subresource >= desc->ArraySize ||
++        (desc->Format != DXGI_FORMAT_NV12 && desc->Format != DXGI_FORMAT_P010))
++    {
++        MP_ERR(mapper, "Invalid D3D11 decoder texture layout.\n");
++        return -1;
++    }
++
++    if (desc->Width == copy_w && desc->Height == copy_h)
++        return 0;
++
++    D3D11_TEXTURE2D_DESC copy_desc = {
++        .Width = copy_w,
++        .Height = copy_h,
++        .MipLevels = 1,
++        .ArraySize = 1,
++        .Format = desc->Format,
++        .SampleDesc.Count = 1,
++        .Usage = D3D11_USAGE_DEFAULT,
++        .BindFlags = D3D11_BIND_SHADER_RESOURCE,
++    };
++    if (p->copy_tex) {
++        D3D11_TEXTURE2D_DESC old_desc;
++        ID3D11Texture2D_GetDesc(p->copy_tex, &old_desc);
++        if (old_desc.Width != copy_w || old_desc.Height != copy_h ||
++            old_desc.Format != copy_desc.Format)
++            SAFE_RELEASE(p->copy_tex);
++    }
++    if (!p->copy_tex) {
++        HRESULT hr = ID3D11Device_CreateTexture2D(o->d3d11_device, &copy_desc,
++                                                 NULL, &p->copy_tex);
++        if (FAILED(hr)) {
++            MP_ERR(mapper, "Could not create ANGLE copy texture: %s\n",
++                   mp_HRESULT_to_str(hr));
++            return -1;
++        }
++        MP_VERBOSE(mapper, "Copying padded D3D11 texture %ux%u to %ux%u.\n",
++                   desc->Width, desc->Height, copy_w, copy_h);
++    }
++    if (!p->copy_ctx)
++        ID3D11Device_GetImmediateContext(o->d3d11_device, &p->copy_ctx);
++
++    // ANGLE uses this same device's immediate context. mapper_unmap submits
++    // its reads before the next frame can overwrite this reusable texture.
++    D3D11_BOX box = {.right = copy_w, .bottom = copy_h, .back = 1};
++    ID3D11DeviceContext_CopySubresourceRegion(p->copy_ctx,
++        (ID3D11Resource *)p->copy_tex, 0, 0, 0, 0,
++        (ID3D11Resource *)*texture, (UINT)*subresource, &box);
++    *texture = p->copy_tex;
++    *subresource = 0;
++    *desc = copy_desc;
++    return 0;
++}
++
++static int mapper_map(struct ra_hwdec_mapper *mapper)
++{
++    struct priv_owner *o = mapper->owner->priv;
++    struct priv *p = mapper->priv;
+ 
+     ID3D11Texture2D *d3d_tex = (void *)mapper->src->planes[0];
+-    int d3d_subindex = (intptr_t)mapper->src->planes[1];
++    intptr_t d3d_subindex = (intptr_t)mapper->src->planes[1];
+     if (!d3d_tex)
++        return -1;
++
++    D3D11_TEXTURE2D_DESC texdesc;
++    ID3D11Texture2D_GetDesc(d3d_tex, &texdesc);
++    if (prepare_texture(mapper, &d3d_tex, &d3d_subindex, &texdesc) < 0)
+         return -1;
+ 
+     EGLAttrib attrs[] = {
+@@ -312,9 +395,7 @@
+ 
+     if (!o->StreamConsumerAcquireKHR(o->egl_display, p->egl_stream))
+         return -1;
+-
+-    D3D11_TEXTURE2D_DESC texdesc;
+-    ID3D11Texture2D_GetDesc(d3d_tex, &texdesc);
++    p->acquired = true;
+ 
+     for (int n = 0; n < 2; n++) {
+         struct ra_tex_params params = {
+@@ -346,8 +427,14 @@
+ 
+     for (int n = 0; n < 2; n++)
+         ra_tex_free(mapper->ra, &mapper->tex[n]);
+-    if (p->egl_stream)
++    if (p->acquired) {
++        // Submit GL reads on ANGLE's immediate context before reusing the
++        // copy texture. GPU ordering suffices; do not wait on the CPU.
++        if (p->copy_tex)
++            ra_gl_get(mapper->ra)->Flush();
+         o->StreamConsumerReleaseKHR(o->egl_display, p->egl_stream);
++        p->acquired = false;
++    }
+ }
+ 
+ const struct ra_hwdec_driver ra_hwdec_d3d11egl = {

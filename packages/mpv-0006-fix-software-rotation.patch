@@ -1,0 +1,48 @@
+Subject: vo_libmpv: use backend capabilities for layout and automatic rotation
+
+Backport the layout fix from mpv-player/mpv commit
+7a94ec5719f3c09a6056cc6e5297a29c8ba2efdf:
+https://github.com/mpv-player/mpv/commit/7a94ec5719f3c09a6056cc6e5297a29c8ba2efdf
+
+The software backend cannot rotate frames itself. Advertising ROTATE90
+skips the autorotate filter and makes the software scaler crop the original
+frame using rotated dimensions, reading outside its allocation.
+
+Also give each VO its own driver descriptor with the selected backend's
+capabilities. This lets the output chain insert the normal rotation/flip
+filters for software rendering instead of merely suppressing the crash
+and displaying an unrotated image. GPU contexts keep their capabilities;
+the shared descriptor is never modified across concurrent players.
+
+diff --git a/video/out/vo_libmpv.c b/video/out/vo_libmpv.c
+--- a/video/out/vo_libmpv.c
++++ b/video/out/vo_libmpv.c
+@@ -56,5 +56,6 @@
+ struct vo_priv {
+     struct mpv_render_context *ctx; // immutable after init
++    struct vo_driver driver;
+ };
+ 
+ struct mpv_render_context {
+@@ -359,7 +360,7 @@ int mpv_render_context_render(mpv_render_context *ctx, mpv_render_param *params)
+ 
+             struct mp_rect src, dst;
+             struct mp_osd_res osd;
+-            mp_get_src_dst_rects(ctx->log, ctx->vo_opts, ctx->vo->driver->caps,
++            mp_get_src_dst_rects(ctx->log, ctx->vo_opts, ctx->renderer->driver_caps,
+                                 &ctx->img_params, vp_w, abs(vp_h),
+                                 1.0, &src, &dst, &osd);
+ 
+@@ -729,6 +730,12 @@ static int preinit(struct vo *vo)
+         return -1;
+     }
+ 
++    // The output chain must apply rotation/flip filters for backends that
++    // cannot perform these transforms. Keep capabilities local to this VO.
++    p->driver = *vo->driver;
++    p->driver.caps = ctx->renderer->driver_caps;
++    vo->driver = &p->driver;
++
+     mp_mutex_lock(&ctx->lock);
+     ctx->vo = vo;
+     ctx->need_resize = true;
