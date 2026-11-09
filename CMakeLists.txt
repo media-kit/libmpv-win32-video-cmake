@@ -7,7 +7,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/custom_steps.cmake)
 cmake_policy(SET CMP0097 NEW)
 cmake_policy(SET CMP0114 NEW)
 if(POLICY CMP0135)
-  cmake_policy(SET CMP0135 NEW)
+    cmake_policy(SET CMP0135 NEW)
 endif()
 
 if(NOT CMAKE_GENERATOR STREQUAL "Ninja")
@@ -21,7 +21,7 @@ execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE HOST_AR
 string(REGEX MATCH "^[^-]+" HOST_CPU ${HOST_ARCH})
 
 execute_process(COMMAND meson --version OUTPUT_VARIABLE MESON_VERSION)
-if(NOT MESON_VERSION VERSION_GREATER_EQUAL "1.3.0")
+if(NOT MESON_VERSION GREATER_EQUAL 1.3)
     message(FATAL_ERROR "Meson 1.3.0 or greater is required. Install it with pip instead.")
 endif()
 
