@@ -6,29 +6,29 @@ ExternalProject_Add(mpv
         lcms2
         libarchive
         libass
+        libiconv
         libjpeg
         libpng
         uchardet
-        shaderc
-        spirv-cross
         vulkan
         shaderc
         libplacebo
         spirv-cross
+        libsdl2
     GIT_REPOSITORY https://github.com/mpv-player/mpv.git
     SOURCE_DIR ${SOURCE_LOCATION}
-    GIT_TAG v0.39.0
-    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/mpv-*.patch
+    GIT_CLONE_FLAGS "--filter=tree:0"
     UPDATE_COMMAND ""
+    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/mpv-*.patch
+    GIT_TAG v0.41.0
     CONFIGURE_COMMAND ${EXEC} CONF=1 meson setup <BINARY_DIR> <SOURCE_DIR>
         --prefix=${MINGW_INSTALL_PREFIX}
         --libdir=${MINGW_INSTALL_PREFIX}/lib
         --cross-file=${MESON_CROSS}
         --default-library=shared
         --prefer-static
-        -Dgpl=false
-        -Ddebug=false
-        -Db_ndebug=false
+        -Ddebug=true
+        -Db_ndebug=true
         -Doptimization=3
         -Db_lto=true
         ${mpv_lto_mode}
@@ -36,15 +36,23 @@ ExternalProject_Add(mpv
         -Dpdf-build=enabled
         -Dlua=disabled
         -Djavascript=disabled
+        -Dsdl2-gamepad=enabled
+        -Dlibarchive=enabled
+        -Dlibbluray=disabled
+        -Ddvdnav=disabled
         -Duchardet=enabled
+        -Drubberband=disabled
         -Dlcms2=enabled
         -Dopenal=disabled
-        -Dgl=disabled
         -Dspirv-cross=disabled
         -Dvulkan=disabled
         -Dvapoursynth=disabled
+        -Dsixel=disabled
         ${mpv_gl}
+        # mpv 0.41.0 has no libcurl Meson option. Uncomment after updating mpv.
+        # -Dlibcurl=enabled
         -Dc_args='-Wno-error=int-conversion'
+        -Dgpl=false
     BUILD_COMMAND ${EXEC} LTO_JOB=1 PDB=1 ninja -C <BINARY_DIR>
     INSTALL_COMMAND ""
     LOG_DOWNLOAD 1 LOG_UPDATE 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
@@ -60,6 +68,8 @@ ExternalProject_Add_Step(mpv copy-binary
     DEPENDEES strip-binary
     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.exe                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.exe
     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.com                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.com
+    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/etc/mpv-register.bat              ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv-register.bat
+    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/etc/mpv-unregister.bat            ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv-unregister.bat
     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.pdf                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/doc/manual.pdf
     COMMAND ${CMAKE_COMMAND} -E copy ${MINGW_INSTALL_PREFIX}/etc/fonts/fonts.conf   ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv/fonts.conf
     ${mpv_copy_debug}
@@ -76,7 +86,7 @@ set(RENAME ${CMAKE_CURRENT_BINARY_DIR}/mpv-prefix/src/rename.sh)
 file(WRITE ${RENAME}
 "#!/bin/bash
 cd $1
-GIT=$(git rev-parse --short=7 HEAD)
+GIT=$(git rev-parse --short=10 HEAD)
 mv $2 $2-git-\${GIT}")
 
 ExternalProject_Add_Step(mpv copy-package-dir

@@ -9,8 +9,8 @@ ExternalProject_Add(openssl
     GIT_CLONE_POST_COMMAND "sparse-checkout set --no-cone /* !test"
     GIT_SUBMODULES ""
     UPDATE_COMMAND ""
-    CONFIGURE_COMMAND ""
-    COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/openssl-arm64.conf <SOURCE_DIR>/Configurations/11-mingw-arm64.conf
+    PATCH_COMMAND ${EXEC} git am --3way ${CMAKE_CURRENT_SOURCE_DIR}/openssl-*.patch
+    CONFIGURE_COMMAND ${EXEC} mkdir -p apps/include
     COMMAND ${EXEC} CONF=1 <SOURCE_DIR>/Configure
         --cross-compile-prefix=${TARGET_ARCH}-
         --prefix=${MINGW_INSTALL_PREFIX}
@@ -40,7 +40,6 @@ ExternalProject_Add(openssl
         no-mdc2
         no-idea
         no-cast
-        no-srtp
         no-seed
         no-aria
         no-err

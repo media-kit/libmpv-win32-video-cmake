@@ -73,16 +73,20 @@ list(APPEND ep
     shaderc
     glad
     fast_float
-    libdovi
     libplacebo
     libva
     libzvbi
     libsixel
     ffmpeg
+    ngtcp2
+    nghttp3
+    nghttp2
+    c-ares
+    libpsl
+    curl
     mpv
     mpv-release
     mpv-packaging
-    curl
     flac
     opusfile
     libopusenc

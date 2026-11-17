@@ -4,32 +4,61 @@ defaults:
     shell: bash
 
 on:
-  workflow_dispatch:
+  workflow_call:
+    secrets:
+      CACHE_VERSION:
+        required: true
     inputs:
-      command:
-        description: 'Run custom command before building'
-        required: false
-        type: string
       github_release:
         description: 'Upload to Github release'
         required: false
         default: false
         type: boolean
+      command:
+        description: 'Run custom command before building'
+        required: false
+        type: string
       mpv_tarball:
         description: 'Build latest mpv tarball'
         required: false
         default: false
         type: boolean
+      source_sha:
+        description: 'Exact commit to build; supplied by llvm_clang.yml'
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      github_release:
+        description: 'Upload to Github release'
+        required: false
+        default: false
+        type: boolean
+      command:
+        description: 'Run custom command before building'
+        required: false
+        type: string
+      mpv_tarball:
+        description: 'Build latest mpv tarball'
+        required: false
+        default: false
+        type: boolean
+      source_sha:
+        description: 'Exact commit to build; supplied by llvm_clang.yml'
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   build_mpv:
     name: Building mpv
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion != 'failure' }}
     strategy:
       fail-fast: false
       matrix:
-        bit: [i686, x86_64, x86_64_v3, aarch64]
+        bit: [x86_64, x86_64_v3, aarch64]
     env:
       BIT: ${{ matrix.bit }}
     container:
@@ -39,9 +68,7 @@ jobs:
     steps:
       - name: Init variable
         run: |
-          if [[ $BIT == "i686" ]]; then
-            echo "arch=i686" >> $GITHUB_ENV
-          elif [[ $BIT == "x86_64" ]]; then
+          if [[ $BIT == "x86_64" ]]; then
             echo "arch=x86_64" >> $GITHUB_ENV
           elif [[ $BIT == "x86_64_v3" ]]; then
             echo "arch=x86_64" >> $GITHUB_ENV
@@ -62,10 +89,9 @@ jobs:
 
       - uses: actions/checkout@main
         with:
-          ref: master
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Loading clang sysroot cache
-        id: load_clang_cache
         uses: actions/cache/restore@main
         with:
           path: |
@@ -92,9 +118,9 @@ jobs:
             ${{ secrets.CACHE_VERSION }}-clang-${{ matrix.bit }}_toolchain
 
       - name: Running custom command
-        if: ${{ github.event.inputs.command != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.command != '' }}
         continue-on-error: true
-        run: ${{ github.event.inputs.command }}
+        run: ${{ inputs.command }}
 
       - name: Configuring CMake & Downloading source
         run: |
@@ -104,7 +130,7 @@ jobs:
       - name: Building mpv
         id: build_mpv_step
         env:
-          MPV_TARBALL: ${{ github.event.inputs.mpv_tarball }}
+          MPV_TARBALL: ${{ inputs.mpv_tarball || false }}
         run: |
           ninja -C build_$BIT update
           $MPV_TARBALL && ninja -C build_$BIT mpv-release || ninja -C build_$BIT mpv
@@ -134,7 +160,9 @@ jobs:
         uses: actions/upload-artifact@master
         with:
           name: mpv-${{ matrix.bit }}
-          path: release_${{ matrix.bit }}/mpv-${{ env.arch }}*
+          path: |
+            release_${{ matrix.bit }}/mpv-${{ env.arch }}*.7z
+            release_${{ matrix.bit }}/mpv-dev-${{ env.arch }}*.7z
 
       - name: Uploading ${{ matrix.bit }} debug
         uses: actions/upload-artifact@master
@@ -182,95 +210,129 @@ jobs:
           path: release_${{ matrix.bit }}
           key: ${{ secrets.CACHE_VERSION }}-release_${{ matrix.bit }}-${{ github.run_id }}
 
-      - name: Delete previous cache
-        if: ${{ always() && matrix.bit == 'x86_64' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CURL_RETRIES: "--connect-timeout 60 --retry 999 --retry-delay 5 --retry-all-errors"
-          CACHE_ID: ${{ steps.load_clang_cache.outputs.cache-matched-key }}
-          PREFIX: ${{ secrets.CACHE_VERSION }}
-        run: |
-          cache_key=${CACHE_ID##*-}
-          curl -u shinchiro:$GH_TOKEN $CURL_RETRIES -s -o /dev/null -X DELETE -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/actions/caches?key=$PREFIX-clang_root-$cache_key
-          curl -u shinchiro:$GH_TOKEN $CURL_RETRIES -s -o /dev/null -X DELETE -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/actions/caches?key=$PREFIX-repository-$cache_key
-          curl -u shinchiro:$GH_TOKEN $CURL_RETRIES -s -o /dev/null -X DELETE -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/actions/caches?key=$PREFIX-clang-i686_toolchain-$cache_key
-          curl -u shinchiro:$GH_TOKEN $CURL_RETRIES -s -o /dev/null -X DELETE -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/actions/caches?key=$PREFIX-clang-x86_64_toolchain-$cache_key
-          curl -u shinchiro:$GH_TOKEN $CURL_RETRIES -s -o /dev/null -X DELETE -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/actions/caches?key=$PREFIX-clang-x86_64_v3_toolchain-$cache_key
-          curl -u shinchiro:$GH_TOKEN $CURL_RETRIES -s -o /dev/null -X DELETE -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/actions/caches?key=$PREFIX-clang-aarch64_toolchain-$cache_key
-
   release:
-    name: Upload releases
-    runs-on: ubuntu-latest
+    name: Upload release
     needs: build_mpv
-    env:
-      GH_TOKEN: ${{ github.token }}
-      CURL_RETRIES: "--connect-timeout 60 --retry 999 --retry-delay 5 --retry-all-errors"
-      release_i686_key: ${{ secrets.CACHE_VERSION }}-release_i686-${{ github.run_id }}
-      release_x86_64_key: ${{ secrets.CACHE_VERSION }}-release_x86_64-${{ github.run_id }}
-      release_x86_64_v3_key: ${{ secrets.CACHE_VERSION }}-release_x86_64_v3-${{ github.run_id }}
-      release_aarch64_key: ${{ secrets.CACHE_VERSION }}-release_aarch64-${{ github.run_id }}
-    container:
-      image: docker://alpine:latest
-
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.github_release && !inputs.mpv_tarball }}
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: publish-libmpv
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Installing dependencies
-        shell: sh
-        run: |
-          apk add --update --no-cache bash git file openssh curl tar zstd jq
-          git config --global pull.rebase true
-          git config --global fetch.prune true
-          git config --global --add safe.directory $PWD
-
-      - uses: actions/checkout@main
+      - uses: actions/github-script@v8
+        env:
+          BUILD_RUN_ID: ${{ github.run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         with:
-          ref: master
-
-      - name: Loading release_i686 cache
-        uses: actions/cache/restore@main
-        with:
-          path: release_i686
-          key: ${{ env.release_i686_key }}
-
-      - name: Loading release_x86_64 cache
-        uses: actions/cache/restore@main
-        with:
-          path: release_x86_64
-          key: ${{ env.release_x86_64_key }}
-
-      - name: Loading release_x86_64_v3 cache
-        uses: actions/cache/restore@main
-        with:
-          path: release_x86_64_v3
-          key: ${{ env.release_x86_64_v3_key }}
-
-      - name: Loading release_aarch64 cache
-        uses: actions/cache/restore@main
-        with:
-          path: release_aarch64
-          key: ${{ env.release_aarch64_key }}
-
-      - name: Moving archives
-        run: |
-          mkdir -p release
-          mv release_i686/* release_x86_64/* release_x86_64_v3/* release_aarch64/* release
-          du -ah release/*
-
-      - name: Uploading packages to Github release
-        id: upload_packages_gh
-        if: ${{ github.event.inputs.github_release == 'true' && github.event.inputs.mpv_tarball == 'false' }}
-        continue-on-error: true
-        run: |
-          short_date=$(date "+%Y%m%d")
-          body=$(cat <<END
-          **Workflow run**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
-          END
-          )
-          id=$(curl -u media-kit:$GH_TOKEN $CURL_RETRIES -s -X POST -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/media-kit/libmpv-win32-audio-cmake/releases -d @- <<END | jq -r '.id'
-          {
-            "tag_name": "$short_date",
-            "name": "$short_date",
-            "body": "$(echo ${body//$'\n'/'\n'})"
-          }
-          END
-          )
-          for file in release/*.7z; do curl -u media-kit:$GH_TOKEN $CURL_RETRIES -X POST -H "Accept: application/vnd.github.v3+json" -H "Content-Type: $(file -b --mime-type $file)" https://uploads.github.com/repos/media-kit/libmpv-win32-audio-cmake/releases/$id/assets?name=$(basename $file) --data-binary @$file; done
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const crypto = require('node:crypto');
+            const {execFileSync} = require('node:child_process');
+            const assert = require('node:assert/strict');
+            const {owner, repo} = context.repo;
+            const input = process.env.BUILD_RUN_ID;
+            assert.match(input, /^[1-9][0-9]*$/);
+            const run_id = Number(input);
+            assert(Number.isSafeInteger(run_id));
+            const {data: run} = await github.rest.actions.getWorkflowRun({owner, repo, run_id});
+            assert.equal(run_id, context.runId);
+            assert(['.github/workflows/llvm_clang.yml', '.github/workflows/mpv_clang.yml'].includes(run.path));
+            assert.equal(run.head_sha, context.sha);
+            assert.equal(process.env.SOURCE_SHA, run.head_sha);
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {owner, repo, run_id, filter: 'latest', per_page: 100});
+            for (const bit of ['x86_64', 'x86_64_v3', 'aarch64']) {
+              const found = jobs.filter(job => job.name.endsWith(`Building mpv (${bit})`));
+              assert.equal(found.length, 1, `Missing or duplicate build job: ${bit}`);
+              assert.equal(found[0].status, 'completed');
+              assert.equal(found[0].conclusion, 'success');
+            }
+            for (const [file, tag] of [['mpv', 'v0.41.0'], ['ffmpeg', 'n9.0.2']]) {
+              const {data: recipe} = await github.rest.repos.getContent({owner, repo, path: `packages/${file}.cmake`, ref: run.head_sha});
+              assert.equal(recipe.type, 'file');
+              const source = Buffer.from(recipe.content, 'base64').toString('utf8');
+              assert(source.split(/\r?\n/).some(line => line.trim() === `GIT_TAG ${tag}`), `Unexpected ${file} version`);
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {owner, repo, run_id, per_page: 100});
+            const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'libmpv-release-'));
+            const assets = [];
+            const dates = new Set();
+            const sums = [];
+            for (const [bit, arch, machine] of [['x86_64', 'x86_64', 0x8664], ['x86_64_v3', 'x86_64-v3', 0x8664], ['aarch64', 'aarch64', 0xaa64]]) {
+              const name = `mpv-${bit}`;
+              const found = artifacts.filter(a => a.name === name);
+              assert.equal(found.length, 1, `Missing or duplicate artifact: ${name}`);
+              const artifact = found[0];
+              assert(!artifact.expired, `Artifact expired: ${name}`);
+              assert.equal(artifact.workflow_run.head_sha, run.head_sha);
+              const job = jobs.find(job => job.name.endsWith(`Building mpv (${bit})`));
+              assert(Date.parse(artifact.created_at) >= Date.parse(job.started_at) && Date.parse(artifact.created_at) <= Date.parse(job.completed_at), 'Artifact does not belong to the successful build job');
+              const url = `${process.env.GITHUB_API_URL}/repos/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
+              let response = await fetch(url, {headers: {Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json'}, redirect: 'manual'});
+              if (response.status === 302) {
+                response = await fetch(response.headers.get('location'));
+              }
+              assert(response.ok, `Download failed: ${name} (${response.status})`);
+              const zip = path.join(directory, `${name}.zip`);
+              const bytes = Buffer.from(await response.arrayBuffer());
+              assert.equal(artifact.digest, 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex'), `Artifact checksum mismatch: ${name}`);
+              fs.writeFileSync(zip, bytes);
+              const entries = execFileSync('unzip', ['-Z1', zip], {encoding: 'utf8'}).trim().split(/\r?\n/);
+              const allowed = new RegExp(`^mpv-(?:dev-)?${arch}-([0-9]{8})-git-41f6a64506\\.7z$`);
+              assert.equal(entries.length, 2);
+              assert.equal(new Set(entries).size, 2);
+              assert(entries.every(entry => allowed.test(entry)), `Unexpected artifact files: ${name}`);
+              assert.equal(entries.filter(entry => entry.startsWith('mpv-dev-')).length, 1);
+              assert(entries.every(entry => !fs.existsSync(path.join(directory, entry))), 'Duplicate asset');
+              execFileSync('unzip', ['-q', zip, '-d', directory]);
+              for (const entry of entries.sort()) {
+                dates.add(entry.match(allowed)[1]);
+                const archive = path.join(directory, entry);
+                execFileSync('7z', ['t', archive], {stdio: 'pipe'});
+                if (entry.startsWith('mpv-dev-')) {
+                  const dll = execFileSync('7z', ['e', '-so', archive, 'libmpv-2.dll'], {maxBuffer: 256 * 1024 * 1024});
+                  assert.equal(dll.toString('ascii', 0, 2), 'MZ');
+                  const pe = dll.readUInt32LE(0x3c);
+                  assert.equal(dll.toString('ascii', pe, pe + 4), 'PE\0\0');
+                  assert.equal(dll.readUInt16LE(pe + 4), machine);
+                }
+                sums.push(`${crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex')}  ${entry}\n`);
+                assets.push(entry);
+              }
+            }
+            assert.equal(dates.size, 1, 'Build dates differ between architectures');
+            const tag = [...dates][0];
+            const sha = run.head_sha;
+            await github.rest.git.getCommit({owner, repo, commit_sha: sha});
+            fs.writeFileSync(path.join(directory, 'SHA256SUMS'), sums.sort().join(''));
+            assets.push('SHA256SUMS');
+            const body = `![GitHub release (by tag)](https://img.shields.io/github/downloads/${owner}/${repo}/${tag}/total?label=Downloads)\n\n**Workflow run**: ${run.html_url}`;
+            // Validate every artifact before replacing any existing release.
+            let previous;
+            try {
+              previous = (await github.rest.repos.getReleaseByTag({owner, repo, tag})).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            try {
+              const {data: reference} = await github.rest.git.getRef({owner, repo, ref: `tags/${tag}`});
+              if (reference.object.sha !== sha) {
+                await github.rest.git.updateRef({owner, repo, ref: `tags/${tag}`, sha, force: true});
+              }
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({owner, repo, ref: `refs/tags/${tag}`, sha});
+            }
+            if (previous) {
+              await github.rest.repos.deleteRelease({owner, repo, release_id: previous.id});
+            }
+            const {data: release} = await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: sha, name: tag, body, draft: true});
+            for (const name of assets.sort()) {
+              await github.rest.repos.uploadReleaseAsset({owner, repo, release_id: release.id, name, data: fs.readFileSync(path.join(directory, name))});
+            }
+            const {data: published} = await github.rest.repos.updateRelease({owner, repo, release_id: release.id, draft: false});
+            core.notice(`Published ${published.html_url} from build ${run_id}`);

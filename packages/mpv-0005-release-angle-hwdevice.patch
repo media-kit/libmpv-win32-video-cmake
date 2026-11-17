@@ -1,0 +1,15 @@
+From: upstream mpv 40c998a1ca2ab3fa260fb2b9b3058a5dabba15e9
+Subject: hwdec_d3d11egl: release the FFmpeg hardware device reference
+Source: https://github.com/mpv-player/mpv/commit/40c998a1ca2ab3fa260fb2b9b3058a5dabba15e9
+
+diff --git a/video/out/opengl/hwdec_d3d11egl.c b/video/out/opengl/hwdec_d3d11egl.c
+--- a/video/out/opengl/hwdec_d3d11egl.c
++++ b/video/out/opengl/hwdec_d3d11egl.c
+@@ -76,6 +76,7 @@ static void uninit(struct ra_hwdec *hw)
+     struct priv_owner *p = hw->priv;
+ 
+     hwdec_devices_remove(hw->devs, &p->hwctx);
++    av_buffer_unref(&p->hwctx.av_device_ref);
+ 
+     if (p->d3d11_device)
+         ID3D11Device_Release(p->d3d11_device);

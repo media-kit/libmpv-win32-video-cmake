@@ -13,10 +13,13 @@ ExternalProject_Add(openal-soft
         -DCMAKE_FIND_ROOT_PATH=${MINGW_INSTALL_PREFIX}
         -DBUILD_SHARED_LIBS=OFF
         -DLIBTYPE=STATIC
+        -DALSOFT_ENABLE_MODULES=OFF
         -DALSOFT_UTILS=OFF
         -DALSOFT_EXAMPLES=OFF
         -DALSOFT_TESTS=OFF
         -DALSOFT_BACKEND_PIPEWIRE=OFF
+        -DCMAKE_C_FLAGS='-include stdlib.h'
+        -DCMAKE_CXX_FLAGS='-I<SOURCE_DIR>/gsl/include -include cstdlib'
     BUILD_COMMAND ${EXEC} ninja -C <BINARY_DIR>
           COMMAND bash -c "echo 'Libs.private: -lole32 -luuid -lshlwapi' >> <BINARY_DIR>/openal.pc"
     INSTALL_COMMAND ${EXEC} ninja -C <BINARY_DIR> install
