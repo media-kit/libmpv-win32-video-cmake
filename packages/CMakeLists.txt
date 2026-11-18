@@ -12,6 +12,7 @@ list(APPEND ep
     bzip2
     libjpeg
     lcms2
+    lame
     ogg
     vorbis
     opus-dnn
@@ -24,7 +25,11 @@ list(APPEND ep
     libpng
     x264
     x265
+    libdvdcss
+    libdvdread
+    libdvdnav
     libiconv
+    luajit
     fribidi
     expat
     nettle
@@ -33,6 +38,7 @@ list(APPEND ep
     brotli
     freetype2
     libudfread
+    libbluray
     harfbuzz
     libsoxr
     graphengine
@@ -40,6 +46,7 @@ list(APPEND ep
     fontconfig
     libunibreak
     libass
+    subrandr
     libvpl
     amf-headers
     avisynth-headers
@@ -73,16 +80,22 @@ list(APPEND ep
     shaderc
     glad
     fast_float
-    libdovi
+    svtav1
     libplacebo
     libva
     libzvbi
+    libaribcaption
     libsixel
     ffmpeg
+    ngtcp2
+    nghttp3
+    nghttp2
+    c-ares
+    libpsl
+    curl
     mpv
     mpv-release
     mpv-packaging
-    curl
     flac
     opusfile
     libopusenc
