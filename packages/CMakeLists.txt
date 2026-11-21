@@ -29,6 +29,7 @@ list(APPEND ep
     libdvdread
     libdvdnav
     libiconv
+    luajit
     fribidi
     expat
     nettle
@@ -45,6 +46,7 @@ list(APPEND ep
     fontconfig
     libunibreak
     libass
+    subrandr
     libvpl
     amf-headers
     avisynth-headers
@@ -64,7 +66,6 @@ list(APPEND ep
     libjxl
     uavs3d
     davs2
-    angle-headers
     mujs
     spirv-headers
     spirv-tools
@@ -76,18 +77,23 @@ list(APPEND ep
     openal-soft
     libopenmpt
     shaderc
-    glad
     fast_float
-    libdovi
+    svtav1
     libplacebo
     libva
     libzvbi
+    libaribcaption
     libsixel
     ffmpeg
+    ngtcp2
+    nghttp3
+    nghttp2
+    c-ares
+    libpsl
+    curl
     mpv
     mpv-release
     mpv-packaging
-    curl
     flac
     opusfile
     libopusenc

@@ -20,7 +20,7 @@ elseif(COMPILER_TOOLCHAIN STREQUAL "clang")
                                             COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/VapourSynth.lib ${MINGW_INSTALL_PREFIX}/lib/VapourSynth.lib)
     set(ffmpeg_extra_libs "-lc++")
     set(mpv_lto_mode "-Db_lto_mode=thin")
-    set(mpv_copy_debug COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.pdb ${CMAKE_CURRENT_BINARY_DIR}/mpv-debug/mpv.pdb)
+    set(mpv_copy_debug COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libmpv-2.pdb ${CMAKE_CURRENT_BINARY_DIR}/mpv-debug/libmpv-2.pdb)
     if(CLANG_PACKAGES_LTO)
         set(cargo_lto_rustflags "CARGO_PROFILE_RELEASE_LTO=thin
                                  RUSTFLAGS='-C linker-plugin-lto -C embed-bitcode -C lto=thin'")
@@ -31,32 +31,47 @@ elseif(COMPILER_TOOLCHAIN STREQUAL "clang")
     endif()
 endif()
 
+# Both Windows mpv targets render GPU frames directly into D3D11 textures.
+set(mpv_render_options
+    -Dd3d11=enabled
+    -Dd3d-hwaccel=enabled
+    -Dshaderc=enabled
+    -Dspirv-cross=enabled
+    -Dgl=disabled
+    -Degl-angle=disabled
+    -Degl-angle-lib=disabled
+    -Degl-angle-win32=disabled
+    -Dvulkan=disabled
+)
+
 if(TARGET_CPU STREQUAL "x86_64")
     set(dlltool_image "i386:x86-64")
     set(vulkan_asm "-DUSE_GAS=ON")
     set(openssl_target "mingw64")
     set(openssl_ec_opt "enable-ec_nistp_64_gcc_128")
     set(libvpx_target "x86_64-win64-gcc")
-    set(mpv_gl "-Dgl=enabled -Degl-angle=enabled")
     set(xxhash_dispatch "-DDISPATCH=ON")
     set(xxhash_cflags "-DXXH_X86DISPATCH_ALLOW_AVX=1")
-    set(nvcodec_headers "nvcodec-headers")
-    set(ffmpeg_cuda "--enable-cuda-llvm --enable-cuvid --enable-nvdec --enable-nvenc --enable-ffnvcodec")
+    set(ffmpeg_uavs3d "uavs3d")
+    set(ffmpeg_uavs3d_cmd "--enable-libuavs3d")
+    set(ffmpeg_davs2 "davs2")
+    set(ffmpeg_davs2_cmd "--enable-libdavs2")
 elseif(TARGET_CPU STREQUAL "i686")
     set(dlltool_image "i386")
     set(vulkan_asm "-DUSE_MASM=OFF")
     set(openssl_target "mingw")
     set(libvpx_target "x86-win32-gcc")
-    set(mpv_gl "-Dgl=enabled -Degl-angle=enabled")
     set(xxhash_dispatch "-DDISPATCH=ON")
     set(xxhash_cflags "-DXXH_X86DISPATCH_ALLOW_AVX=1")
-    set(nvcodec_headers "nvcodec-headers")
-    set(ffmpeg_cuda "--enable-cuda-llvm --enable-cuvid --enable-nvdec --enable-nvenc --enable-ffnvcodec")
+    set(ffmpeg_uavs3d "uavs3d")
+    set(ffmpeg_uavs3d_cmd "--enable-libuavs3d")
+    set(ffmpeg_davs2 "davs2")
+    set(ffmpeg_davs2_cmd "--enable-libdavs2")
+    set(lame_force_msse "CFLAGS='-msse'")
 elseif(TARGET_CPU STREQUAL "aarch64")
     set(dlltool_image "arm64")
     set(vulkan_asm "-DUSE_GAS=ON")
-    set(openssl_target "mingw-arm64")
+    set(openssl_target "mingwarm64")
     set(openssl_ec_opt "enable-ec_nistp_64_gcc_128")
     set(libvpx_target "arm64-win64-gcc")
-    set(mpv_gl "-Dgl=disabled -Degl-angle=disabled")
 endif()

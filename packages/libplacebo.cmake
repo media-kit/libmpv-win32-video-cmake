@@ -1,4 +1,3 @@
-get_property(src_glad TARGET glad PROPERTY _EP_SOURCE_DIR)
 get_property(src_fast_float TARGET fast_float PROPERTY _EP_SOURCE_DIR)
 ExternalProject_Add(libplacebo
     DEPENDS
@@ -6,7 +5,6 @@ ExternalProject_Add(libplacebo
         shaderc
         spirv-cross
         lcms2
-        glad
         fast_float
         xxhash
     GIT_REPOSITORY https://github.com/haasn/libplacebo.git
@@ -15,9 +13,7 @@ ExternalProject_Add(libplacebo
     GIT_SUBMODULES ""
     UPDATE_COMMAND ""
     CONFIGURE_COMMAND ""
-    COMMAND bash -c "rm -rf <SOURCE_DIR>/3rdparty/glad"
     COMMAND bash -c "rm -rf <SOURCE_DIR>/3rdparty/fast_float"
-    COMMAND bash -c "ln -s ${src_glad} <SOURCE_DIR>/3rdparty/glad"
     COMMAND bash -c "ln -s ${src_fast_float} <SOURCE_DIR>/3rdparty/fast_float"
     COMMAND ${EXEC} CONF=1 meson setup <BINARY_DIR> <SOURCE_DIR>
         --prefix=${MINGW_INSTALL_PREFIX}
@@ -25,6 +21,9 @@ ExternalProject_Add(libplacebo
         --cross-file=${MESON_CROSS}
         --default-library=static
         -Dd3d11=enabled
+        -Dopengl=disabled
+        # FFmpeg checks pl_vulkan_create when --enable-libplacebo is set.
+        -Dvulkan=enabled
         -Ddebug=true
         -Db_ndebug=true
         -Doptimization=3
